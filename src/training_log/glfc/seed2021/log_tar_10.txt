@@ -1,0 +1,2 @@
+method_glfc, task_size_10, learning_rate_2.0
+Task: 0, Round: 0 Accuracy = 10.00%
