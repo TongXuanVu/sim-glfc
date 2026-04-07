@@ -40,7 +40,8 @@ def participant_exemplar_storing(clients, num, model_g, old_client, task_id, cli
                 clients[index].beforeTrain(task_id, 1)
             clients[index].update_new_set()
 
-def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client):
+# Phiên bản chạy tuần tự (như cũ) - giữ lại để dự phòng
+def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client, is_task_change=False):
     clients[index].model = copy.deepcopy(model_g)
 
     if index in old_client:
@@ -48,15 +49,63 @@ def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client):
     else:
         clients[index].beforeTrain(task_id, 1)
 
-    clients[index].update_new_set()
+    # Nếu client không có dữ liệu cho task này, bỏ qua train và bảo lưu mô hình hiện tại
+    if not clients[index].has_data:
+        print(f"   [INFO] Client {index} skipping local training (no data for Task {task_id+1})")
+        return clients[index].model.state_dict(), None, 0.0
+
+    clients[index].update_new_set(is_task_change)
     print(clients[index].signal)
-    clients[index].train(ep_g, model_old)
+    train_loss = clients[index].train(ep_g, model_old)
     local_model = clients[index].model.state_dict()
     proto_grad = clients[index].proto_grad_sharing()
 
     print('*' * 60)
 
-    return local_model, proto_grad
+    return local_model, proto_grad, train_loss
+
+# Phiên bản dành cho chạy SONG SONG
+def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g, is_old_client, is_task_change=False):
+    """Hàm độc lập để chạy huấn luyện 1 Client trong tiến trình riêng (multiprocessing)."""
+    # Đồng bộ mô hình Global tới Client này
+    client_obj.model.load_state_dict(model_g_state)
+    
+    # Chuẩn bị dữ liệu
+    group = 0 if is_old_client else 1
+    client_obj.beforeTrain(task_id, group)
+
+    # Kiểm tra dữ liệu Non-IID
+    if not client_obj.has_data:
+        return {
+            'index': index,
+            'state_dict': client_obj.model.state_dict(),
+            'proto_grad': None,
+            'train_loss': 0.0,
+            'has_data': False,
+            'exemplar_set': client_obj.exemplar_set,
+            'learned_classes': client_obj.learned_classes,
+            'learned_numclass': client_obj.learned_numclass
+        }
+
+    # Thực hiện huấn luyện
+    client_obj.update_new_set(is_task_change)
+    train_loss = client_obj.train(ep_g, model_old, disable_pbar=True)
+    
+    # Kết quả
+    local_state = client_obj.model.state_dict()
+    proto_grad = client_obj.proto_grad_sharing()
+
+    # Trả về gói kết quả để Server cập nhật lại đối tượng Client cha
+    return {
+        'index': index,
+        'state_dict': local_state,
+        'proto_grad': proto_grad,
+        'train_loss': train_loss,
+        'has_data': True,
+        'exemplar_set': client_obj.exemplar_set,
+        'learned_classes': client_obj.learned_classes,
+        'learned_numclass': client_obj.learned_numclass
+    }
 
 def FedAvg(models):
     w_avg = copy.deepcopy(models[0])
@@ -66,21 +115,63 @@ def FedAvg(models):
         w_avg[k] = torch.div(w_avg[k], len(models))
     return w_avg
 
+def compute_metrics(all_preds, all_labels):
+    """Compute macro Precision, Recall, F1 across classes present in labels."""
+    all_preds  = all_preds.cpu().long()
+    all_labels = all_labels.cpu().long()
+    classes = torch.unique(all_labels)
+
+    tp = torch.zeros(len(classes))
+    fp = torch.zeros(len(classes))
+    fn = torch.zeros(len(classes))
+
+    for idx, c in enumerate(classes):
+        tp[idx] = ((all_preds == c) & (all_labels == c)).sum().float()
+        fp[idx] = ((all_preds == c) & (all_labels != c)).sum().float()
+        fn[idx] = ((all_preds != c) & (all_labels == c)).sum().float()
+
+    precision = (tp / (tp + fp + 1e-8)).mean().item() * 100
+    recall    = (tp / (tp + fn + 1e-8)).mean().item() * 100
+    f1        = (2 * tp / (2 * tp + fp + fn + 1e-8)).mean().item() * 100
+
+    return precision, recall, f1
+
 def model_global_eval(model_g, test_dataset, task_id, task_size, device):
+    """Evaluate global model. Returns (accuracy, precision, recall, f1, avg_loss)."""
     model_to_device(model_g, False, device)
     model_g.eval()
-    test_dataset.getTestData([0, task_size * (task_id + 1)])
+    test_range = [0, task_size * (task_id + 1)]
+    test_dataset.getTestData(test_range)
+    print(f"   [EVAL] Đang kiểm tra trên các lớp thuộc phạm vi: {test_range}")
     test_loader = DataLoader(dataset=test_dataset, shuffle=True, batch_size=128)
+
+    criterion = nn.CrossEntropyLoss()
     correct, total = 0, 0
+    total_loss = 0.0
+    num_batches = 0
+    all_preds, all_labels = [], []
+
     for setp, (indexs, imgs, labels) in enumerate(test_loader):
         if device != -1:
             imgs, labels = imgs.cuda(device), labels.cuda(device)
         with torch.no_grad():
             outputs = model_g(imgs)
+            loss = criterion(outputs, labels)
         predicts = torch.max(outputs, dim=1)[1]
-        correct += (predicts.cpu() == labels.cpu()).sum()
-        total += len(labels)
-    accuracy = 100 * correct / total
-    model_g.train()
-    return accuracy
+        correct     += (predicts.cpu() == labels.cpu()).sum()
+        total       += len(labels)
+        total_loss  += loss.item()
+        num_batches += 1
+        all_preds.append(predicts.cpu())
+        all_labels.append(labels.cpu())
 
+    accuracy = 100 * correct / total if total > 0 else torch.tensor(0.0)
+    avg_loss = total_loss / max(num_batches, 1)
+
+    all_preds  = torch.cat(all_preds)  if all_preds  else torch.tensor([])
+    all_labels = torch.cat(all_labels) if all_labels else torch.tensor([])
+
+    precision, recall, f1 = compute_metrics(all_preds, all_labels) if total > 0 else (0.0, 0.0, 0.0)
+
+    model_g.train()
+    return accuracy, precision, recall, f1, avg_loss

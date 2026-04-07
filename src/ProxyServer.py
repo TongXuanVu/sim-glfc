@@ -15,8 +15,9 @@ from Fed_utils import *
 from proxy_data import *
 
 class proxyServer:
-    def __init__(self, device, learning_rate, numclass, feature_extractor, encode_model, test_transform):
+    def __init__(self, device, learning_rate, numclass, feature_extractor, encode_model, test_transform, dataset_type='cifar100'):
         super(proxyServer, self).__init__()
+        self.dataset_type = dataset_type
         self.Iteration = 250
         self.learning_rate = learning_rate
         self.model = network(numclass, feature_extractor)
@@ -24,7 +25,7 @@ class proxyServer:
         self.monitor_dataset = Proxy_Data(test_transform)
         self.new_set = []
         self.new_set_label = []
-        self.numclass = 0
+        self.numclass = numclass
         self.device = device
         self.num_image = 20
         self.pool_grad = None
@@ -81,12 +82,12 @@ class proxyServer:
         pool_label = self.gradient2label()
         pool_label = np.array(pool_label)
         # print(pool_label)
-        class_ratio = np.zeros((1, 100))
+        class_ratio = np.zeros((1, self.numclass))
 
         for i in pool_label:
             class_ratio[0, i] += 1
 
-        for label_i in range(100):
+        for label_i in range(self.numclass):
             if class_ratio[0, label_i] > 0:
                 num_augmentation = self.num_image
                 augmentation = []
@@ -97,10 +98,16 @@ class proxyServer:
                     grad_truth_temp = self.pool_grad[grad_index[0][j]]
 
                     if self.device != -1:
-                        dummy_data = torch.randn((1, 3, 32, 32)).cuda(self.device).requires_grad_(True)
+                        if self.dataset_type == 'tabular':
+                            dummy_data = torch.randn((1, 32)).cuda(self.device).requires_grad_(True)
+                        else:
+                            dummy_data = torch.randn((1, 3, 32, 32)).cuda(self.device).requires_grad_(True)
                         label_pred = torch.Tensor([label_i]).long().cuda(self.device).requires_grad_(False)
                     else:
-                        dummy_data = torch.randn((1, 3, 32, 32)).requires_grad_(True)
+                        if self.dataset_type == 'tabular':
+                            dummy_data = torch.randn((1, 32)).requires_grad_(True)
+                        else:
+                            dummy_data = torch.randn((1, 3, 32, 32)).requires_grad_(True)
                         label_pred = torch.Tensor([label_i]).long().requires_grad_(False)
 
                     optimizer = torch.optim.LBFGS([dummy_data, ], lr=0.1)
@@ -118,10 +125,12 @@ class proxyServer:
                             pred = recon_model(dummy_data)
                             dummy_loss = criterion(pred, label_pred)
 
-                            dummy_dy_dx = torch.autograd.grad(dummy_loss, recon_model.parameters(), create_graph=True)
+                            dummy_dy_dx = torch.autograd.grad(dummy_loss, recon_model.parameters(), create_graph=True, allow_unused=True)
 
                             grad_diff = 0
                             for gx, gy in zip(dummy_dy_dx, grad_truth_temp):
+                                if gx is None:
+                                    continue
                                 grad_diff += ((gx - gy) ** 2).sum()
                             grad_diff.backward()
                             return grad_diff
@@ -133,7 +142,10 @@ class proxyServer:
                             print(current_loss)
 
                         if iters >= self.Iteration - self.num_image:
-                            dummy_data_temp = np.asarray(tp(dummy_data.clone().squeeze(0).cpu()))
+                            if self.dataset_type == 'tabular':
+                                dummy_data_temp = dummy_data.clone().squeeze(0).detach().cpu().numpy()
+                            else:
+                                dummy_data_temp = np.asarray(tp(dummy_data.clone().squeeze(0).cpu()))
                             augmentation.append(dummy_data_temp)
 
                 self.new_set.append(augmentation)

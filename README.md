@@ -2,15 +2,13 @@
 
 ## [[CVPR-2022] Federated Class-Incremental Learning](https://openaccess.thecvf.com/content/CVPR2022/html/Dong_Federated_Class-Incremental_Learning_CVPR_2022_paper.html)
 
-This is the implementation code of the CVPR 2022 paper ["**Federated Class-Incremental Learning**"](https://cvpr2022.thecvf.com/). 
+This is the implementation code of the CVPR 2022 paper ["**Federated Class-Incremental Learning**"](https://cvpr2022.thecvf.com/).
 
 You can also find the arXiv version with supplementary materials [here](https://arxiv.org/abs/2203.11473). More related works are provided at [Dynamic Federated Learning](https://github.com/conditionWang/Dynamic-FL), please work with us to make FL more practical and realistic.
-
 
 ## Framework:
 
 ![overview](./fig/overview.png)
-
 
 ## Prerequisites:
 
@@ -25,30 +23,38 @@ You can also find the arXiv version with supplementary materials [here](https://
 
 ## Datasets:
 
-* **CIFAR100:** You don't need to do anything before running the experiments on [CIFAR100](https://www.cs.toronto.edu/~kriz/cifar.html) dataset.
+- **CIFAR100:** You don't need to do anything before running the experiments on [CIFAR100](https://www.cs.toronto.edu/~kriz/cifar.html) dataset.
 
-* **Imagenet-Subset (Mini-Imagenet):** Please manually download the on [Imagenet-Subset (Mini-Imagenet)](https://github.com/yaoyao-liu/mini-imagenet-tools) dataset from the official websites, and place it in './train'.
+- **Imagenet-Subset (Mini-Imagenet):** Please manually download the on [Imagenet-Subset (Mini-Imagenet)](https://github.com/yaoyao-liu/mini-imagenet-tools) dataset from the official websites, and place it in './train'.
 
-* **Tiny-Imagenet:** Please manually download the on [Tiny-Imagenet](https://github.com/seshuad/IMagenet) dataset from the official websites, and place it in './tiny-imagenet-200'.
-
-
+- **Tiny-Imagenet:** Please manually download the on [Tiny-Imagenet](https://github.com/seshuad/IMagenet) dataset from the official websites, and place it in './tiny-imagenet-200'.
 
 ## Training:
 
-* Please check the detailed arguments in './src/option.py'.
+- Please check the detailed arguments in './src/option.py'.
 
 ```shell
 python fl_main.py
-```
+python fl_main.py --dataset tabular --device -1
+python fl_main.py --dataset tabular --model_type cnn --device -1
 
+# Option 1: Huấn luyện nhanh (5 round mỗi task, tổng 30 rounds)
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 30 --epochs_local 5
+
+# Option 2: Huấn luyện tiêu chuẩn (10 round mỗi task, tổng 60 rounds)
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 60 --epochs_local 10
+
+# Option 3: Huấn luyện kỹ (20 round mỗi task, tổng 120 rounds)
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 120 --epochs_local 10
+```
 
 ## Performance:
 
-* **Experiments on CIFAR100 dataset**
+- **Experiments on CIFAR100 dataset**
 
 ![cifar](./fig/imagenet_subset_result.png)
 
-* **Experiments on Imagenet-Subset (Mini-Imagenet) dataset**
+- **Experiments on Imagenet-Subset (Mini-Imagenet) dataset**
 
 ![imagenet-subset](./fig/cifar_result.png)
 
@@ -74,7 +80,5 @@ If you find this code is useful to your research, please consider to cite our pa
 
 ## Contact:
 
-* **Lixu Wang:**  lixuwang2025@u.northwestern.edu
-* **Jiahua Dong:** dongjiahua@sia.cn
-
-
+- **Lixu Wang:** lixuwang2025@u.northwestern.edu
+- **Jiahua Dong:** dongjiahua@sia.cn

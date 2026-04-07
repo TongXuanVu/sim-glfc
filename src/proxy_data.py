@@ -3,6 +3,7 @@ from PIL import Image
 import cv2
 import os
 import pandas as pd
+import torch
 
 class Proxy_Data():
     def __init__(self, test_transform=None):
@@ -31,10 +32,16 @@ class Proxy_Data():
         self.TestData, self.TestLabels = self.concatenate(datas, labels)
 
     def getTestItem(self, index):
-        img, target = Image.fromarray(self.TestData[index]), self.TestLabels[index]
-
-        if self.test_transform:
-            img = self.test_transform(img)
+        data = self.TestData[index]
+        target = self.TestLabels[index]
+        
+        # If tabular feature (1D vector)
+        if len(data.shape) == 1:
+            img = torch.tensor(data, dtype=torch.float32)
+        else:
+            img = Image.fromarray(data)
+            if self.test_transform:
+                img = self.test_transform(img)
 
         return img, target
 

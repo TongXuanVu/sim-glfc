@@ -5,7 +5,10 @@ class network(nn.Module):
     def __init__(self, numclass, feature_extractor):
         super(network, self).__init__()
         self.feature = feature_extractor
-        self.fc = nn.Linear(feature_extractor.fc.in_features, numclass, bias=True)
+        if hasattr(feature_extractor, 'feature_dim'):
+            self.fc = nn.Linear(feature_extractor.feature_dim, numclass, bias=True)
+        else:
+            self.fc = nn.Linear(feature_extractor.fc.in_features, numclass, bias=True)
 
     def forward(self, input):
         x = self.feature(input)
@@ -63,3 +66,78 @@ def weights_init(m):
             m.bias.data.uniform_(-0.5, 0.5)
     except Exception:
         print('warning: failed in weights_init for %s.bias' % m._get_name())
+
+class MLP_FeatureExtractor(nn.Module):
+    def __init__(self, in_dim=32, hidden=128):
+        super(MLP_FeatureExtractor, self).__init__()
+        self.body = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.LayerNorm(hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.LayerNorm(hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 64),
+            nn.ReLU(),
+        )
+        self.feature_dim = 64
+
+    def forward(self, x):
+        return self.body(x)
+
+class MLP_Encoder(nn.Module):
+    def __init__(self, in_dim=32, hidden=128, num_classes=100):
+        super(MLP_Encoder, self).__init__()
+        self.body = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.LayerNorm(hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.LayerNorm(hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 64),
+            nn.ReLU(),
+        )
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        out = self.body(x)
+        out = self.fc(out)
+        return out
+
+class CNN_FeatureExtractor(nn.Module):
+    def __init__(self, in_dim=32):
+        super(CNN_FeatureExtractor, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv1d(1, 16, kernel_size=3, padding=1),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Conv1d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Conv1d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1)
+        )
+        self.feature_dim = 64
+
+    def forward(self, x):
+        # x shape: (batch, 32) -> reshape thành (batch, 1, 32)
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        out = self.conv(x)
+        out = out.view(out.size(0), -1)
+        return out
+
+class CNN_Encoder(nn.Module):
+    def __init__(self, in_dim=32, num_classes=100):
+        super(CNN_Encoder, self).__init__()
+        self.feature = CNN_FeatureExtractor(in_dim)
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        out = self.feature(x)
+        out = self.fc(out)
+        return out
