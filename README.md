@@ -38,6 +38,10 @@ python fl_main.py
 python fl_main.py --dataset tabular --device -1
 python fl_main.py --dataset tabular --model_type cnn --device -1
 
+--tasks_global: số lượng round trong 1 task
+--epochs_global: tổng số lượng round
+--epochs_local: số lượng epoch train client
+
 # Option 1: Huấn luyện nhanh (5 round mỗi task, tổng 30 rounds)
 python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 30 --epochs_local 5
 
